@@ -45,7 +45,7 @@ docker compose up --build
 ```
 ИЛИ
 ```sh
-make start
+make cmd/server
 ```
 
 Сервер запускается на порту из переменной `APP_PORT`;
