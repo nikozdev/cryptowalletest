@@ -1,5 +1,21 @@
 services:
+
+  postgresql:
+    image: postgres:17
+    env_file:
+      - configs/postgresql.env
+      - secrets/postgresql.env
+    volumes:
+      - ./runtime/postgresql:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+
   server:
     build: .
+    env_file:
+      - configs/server.env
+      - secrets/server.env
     ports:
       - "8080:8080"
+    depends_on:
+      - postgresql
