@@ -7,15 +7,22 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 
 	"repo.nikozdev.net/cryptowalletest/internal/model"
 )
 
 var baseURL = "http://localhost:8080"
+var authToken string
 
 func getUser(client *http.Client, id int) (*model.User, error) {
 	url := fmt.Sprintf("%s/v1/users/%d", baseURL, id)
-	res, err := client.Get(url)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+authToken)
+	res, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -43,6 +50,7 @@ func setUser(client *http.Client, id int, name string) error {
 		return fmt.Errorf("request failed: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+authToken)
 	res, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
@@ -57,6 +65,12 @@ func setUser(client *http.Client, id int, name string) error {
 
 func main() {
 	log.Println("init")
+
+	authToken = os.Getenv("APP_AUTH_TOKEN")
+	if authToken == "" {
+		log.Fatal("APP_AUTH_TOKEN is not set")
+	}
+
 	client := &http.Client{}
 
 	user, err := getUser(client, 1)

@@ -12,6 +12,18 @@ import (
 )
 
 var db *sql.DB
+var authToken string
+
+func checkAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		header := r.Header.Get("Authorization")
+		if header == "" || header != "Bearer "+authToken {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 func getUserHandler(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -83,6 +95,11 @@ func main() {
 	}
 	log.Println("migrations done")
 
+	authToken = os.Getenv("APP_AUTH_TOKEN")
+	if authToken == "" {
+		log.Fatal("APP_AUTH_TOKEN is not set")
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/users/{id}", getUserHandler)
 	mux.HandleFunc("PUT /v1/users/{id}", setUserHandler)
@@ -93,5 +110,5 @@ func main() {
 	}
 	addr := "0.0.0.0:" + port
 	log.Printf("listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	log.Fatal(http.ListenAndServe(addr, checkAuth(mux)))
 }
