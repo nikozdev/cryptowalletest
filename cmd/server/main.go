@@ -80,7 +80,11 @@ func main() {
 	defer db.Close()
 	log.Println("database connected")
 
-	err = database.RunMigrations(db, "migrations")
+	migrationsDir := os.Getenv("MIGRATIONS_DIR")
+	if migrationsDir == "" {
+		migrationsDir = "migrations"
+	}
+	err = database.RunMigrations(db, migrationsDir)
 	if err != nil {
 		log.Fatalf("migrations: %v", err)
 	}
