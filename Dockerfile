@@ -9,6 +9,7 @@ RUN CGO_ENABLED=0 go build -o /bin/server cmd/server/main.go
 FROM scratch AS runtime
 
 COPY --from=builder /bin/server /bin/server
+COPY --from=builder /src/migrations /migrations
 
 EXPOSE 8080
 
