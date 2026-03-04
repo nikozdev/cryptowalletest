@@ -6,24 +6,29 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"time"
 
 	"repo.nikozdev.net/cryptowalletest/internal/database"
+	"repo.nikozdev.net/cryptowalletest/internal/model"
 )
 
 var db *sql.DB
+var authToken string
 
-type User struct {
-	ID        int64     `json:"v_id"`
-	Name      string    `json:"v_name"`
-	Balance   float64   `json:"v_balance"`
-	CreatedAt time.Time `json:"v_created_at"`
+func checkAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		header := r.Header.Get("Authorization")
+		if header == "" || header != "Bearer "+authToken {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func getUserHandler(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var user User
+	var user model.User
 	err := db.QueryRow(
 		`SELECT v_id, v_name, v_balance, v_created_at FROM t_user WHERE v_id = $1`,
 		id,
@@ -90,6 +95,11 @@ func main() {
 	}
 	log.Println("migrations done")
 
+	authToken = os.Getenv("APP_AUTH_TOKEN")
+	if authToken == "" {
+		log.Fatal("APP_AUTH_TOKEN is not set")
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/users/{id}", getUserHandler)
 	mux.HandleFunc("PUT /v1/users/{id}", setUserHandler)
@@ -100,5 +110,5 @@ func main() {
 	}
 	addr := "0.0.0.0:" + port
 	log.Printf("listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	log.Fatal(http.ListenAndServe(addr, checkAuth(mux)))
 }
