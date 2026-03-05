@@ -4,10 +4,10 @@ cmd/%: FORCE
 	./build/$@.exe $(filter-out $@,$(MAKECMDGOALS))
 
 test:
-	go test ./...
+	go test ./cmd/... ./internal/... -v -count=1
 
 lint:
-	go vet ./...
+	go vet ./cmd/... ./internal/...
 
 %:
 	@true

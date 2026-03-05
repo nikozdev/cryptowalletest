@@ -50,7 +50,7 @@ func setUserHandler(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	var input struct {
-		Name string `json:"v_name"`
+		Name string `json:"name"`
 	}
 	err := json.NewDecoder(r.Body).Decode(&input)
 	if err != nil {
@@ -72,6 +72,215 @@ func setUserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func createWithdrawalHandler(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		UserID         int64   `json:"user_id"`
+		Amount         float64 `json:"amount"`
+		Currency       string  `json:"currency"`
+		Destination    string  `json:"destination"`
+		IdempotencyKey string  `json:"idempotency_key"`
+	}
+	err := json.NewDecoder(r.Body).Decode(&input)
+	if err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if input.IdempotencyKey == "" {
+		http.Error(w, "idempotency key required", http.StatusBadRequest)
+		return
+	}
+	if input.Amount <= 0 {
+		http.Error(w, "amount must be positive", http.StatusBadRequest)
+		return
+	}
+	if input.Currency == "" {
+		input.Currency = "USDT"
+	}
+	if input.Currency != "USDT" {
+		http.Error(w, "unsupported currency", http.StatusBadRequest)
+		return
+	}
+
+	var existing model.Withdrawal
+	err = db.QueryRow(
+		`SELECT v_id, v_user_id, v_amount, v_currency, v_destination, v_status, v_idempotency_key, v_created_at
+		FROM t_withdrawal WHERE v_idempotency_key = $1`,
+		input.IdempotencyKey,
+	).Scan(
+		&existing.ID, &existing.UserID, &existing.Amount,
+		&existing.Currency, &existing.Destination, &existing.Status,
+		&existing.IdempotencyKey, &existing.CreatedAt,
+	)
+	if err == nil {
+		if existing.UserID == input.UserID &&
+			existing.Amount == input.Amount &&
+			existing.Currency == input.Currency &&
+			existing.Destination == input.Destination {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(existing)
+			return
+		}
+		http.Error(w, "idempotency key conflict", http.StatusUnprocessableEntity)
+		return
+	}
+	if err != sql.ErrNoRows {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
+	var balance float64
+	err = tx.QueryRow(
+		`SELECT v_balance FROM t_user WHERE v_id = $1 FOR UPDATE`,
+		input.UserID,
+	).Scan(&balance)
+	if err == sql.ErrNoRows {
+		http.Error(w, "user not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if balance < input.Amount {
+		http.Error(w, "insufficient balance", http.StatusConflict)
+		return
+	}
+
+	newBalance := balance - input.Amount
+	_, err = tx.Exec(
+		`UPDATE t_user SET v_balance = $1 WHERE v_id = $2`,
+		newBalance, input.UserID,
+	)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	var withdrawal model.Withdrawal
+	err = tx.QueryRow(
+		`INSERT INTO t_withdrawal (v_user_id, v_amount, v_currency, v_destination, v_idempotency_key)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING v_id, v_user_id, v_amount, v_currency, v_destination, v_status, v_idempotency_key, v_created_at`,
+		input.UserID, input.Amount, input.Currency, input.Destination, input.IdempotencyKey,
+	).Scan(
+		&withdrawal.ID, &withdrawal.UserID, &withdrawal.Amount,
+		&withdrawal.Currency, &withdrawal.Destination, &withdrawal.Status,
+		&withdrawal.IdempotencyKey, &withdrawal.CreatedAt,
+	)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	_, err = tx.Exec(
+		`INSERT INTO t_ledger_entry (v_user_id, v_withdrawal_id, v_type, v_amount, v_balance_after)
+		VALUES ($1, $2, 'withdrawal', $3, $4)`,
+		input.UserID, withdrawal.ID, input.Amount, newBalance,
+	)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(withdrawal)
+}
+
+func getWithdrawalHandler(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	var withdrawal model.Withdrawal
+	err := db.QueryRow(
+		`SELECT v_id, v_user_id, v_amount, v_currency, v_destination, v_status, v_idempotency_key, v_created_at
+		FROM t_withdrawal WHERE v_id = $1`,
+		id,
+	).Scan(
+		&withdrawal.ID, &withdrawal.UserID, &withdrawal.Amount,
+		&withdrawal.Currency, &withdrawal.Destination, &withdrawal.Status,
+		&withdrawal.IdempotencyKey, &withdrawal.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		http.Error(w, "withdrawal not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(withdrawal)
+}
+
+func confirmWithdrawalHandler(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	tx, err := db.Begin()
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
+	var withdrawal model.Withdrawal
+	err = tx.QueryRow(
+		`SELECT v_id, v_user_id, v_amount, v_currency, v_destination, v_status, v_idempotency_key, v_created_at
+		FROM t_withdrawal WHERE v_id = $1 FOR UPDATE`,
+		id,
+	).Scan(
+		&withdrawal.ID, &withdrawal.UserID, &withdrawal.Amount,
+		&withdrawal.Currency, &withdrawal.Destination, &withdrawal.Status,
+		&withdrawal.IdempotencyKey, &withdrawal.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		http.Error(w, "withdrawal not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if withdrawal.Status != "pending" {
+		http.Error(w, "withdrawal not pending", http.StatusConflict)
+		return
+	}
+
+	_, err = tx.Exec(
+		`UPDATE t_withdrawal SET v_status = 'confirmed' WHERE v_id = $1`,
+		id,
+	)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	withdrawal.Status = "confirmed"
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(withdrawal)
 }
 
 func main() {
@@ -103,6 +312,9 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/users/{id}", getUserHandler)
 	mux.HandleFunc("PUT /v1/users/{id}", setUserHandler)
+	mux.HandleFunc("POST /v1/withdrawals", createWithdrawalHandler)
+	mux.HandleFunc("GET /v1/withdrawals/{id}", getWithdrawalHandler)
+	mux.HandleFunc("POST /v1/withdrawals/{id}/confirm", confirmWithdrawalHandler)
 
 	port := os.Getenv("APP_PORT")
 	if port == "" {
