@@ -3,7 +3,9 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -26,9 +28,13 @@ func GetDatabase() (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
-	err = db.Ping()
-	if err != nil {
-		return nil, fmt.Errorf("failed to ping database: %w", err)
+	for attempt := 1; attempt <= 10; attempt++ {
+		err = db.Ping()
+		if err == nil {
+			return db, nil
+		}
+		log.Printf("waiting for database (attempt %d/10): %v", attempt, err)
+		time.Sleep(time.Second)
 	}
-	return db, nil
+	return nil, fmt.Errorf("failed to connect to database after 10 attempts: %w", err)
 }

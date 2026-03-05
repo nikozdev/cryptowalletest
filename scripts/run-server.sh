@@ -5,4 +5,6 @@ set -a
 . secrets/server.env
 set +a
 
+docker compose up postgresql -d
+
 make cmd/server
