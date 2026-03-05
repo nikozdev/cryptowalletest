@@ -24,11 +24,14 @@
 
 Все запросы требуют заголовок `Authorization: Bearer <token>`;
 
+- `GET /v1/users` - список пользователей (`?limit=&offset=`);
+- `GET /v1/users/{id}` - получение данных пользователя;
+- `PUT /v1/users/{id}` - обновление имени пользователя;
+- `GET /v1/withdrawals` - список заявок (`?limit=&offset=`);
 - `POST /v1/withdrawals` - создание заявки на вывод;
 - `GET /v1/withdrawals/{id}` - получение информации о заявке;
 - `POST /v1/withdrawals/{id}/confirm` - подтверждение заявки;
-- `GET /v1/users/{id}` - получение данных пользователя;
-- `PUT /v1/users/{id}` - обновление имени пользователя;
+- `GET /v1/ledger` - журнал операций (`?limit=&offset=`);
 
 ## Структура проекта
 
@@ -54,28 +57,39 @@
 docker compose up --build
 ```
 
-Или локально (требуется запущенный PostgreSQL):
+Или локально (требуется запущенный PostgreSQL через docker compose):
 ```sh
-make cmd/server
+./scripts/run-server.sh
 ```
 
 ## Конфигурация
 
-Постоянные значения в `configs/server.env`:
-`APP_PORT`, `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_NAME`;
+Docker: `configs/server.env` - хост `postgresql`, порт `5432`;
+Локально: `configs/server.local.env` - хост `localhost`, порт `5433`;
+Секреты: `secrets/server.env` - `DB_PASSWORD`, `APP_AUTH_TOKEN`;
 
-Секреты в `secrets/server.env`:
-`DB_PASSWORD`, `APP_AUTH_TOKEN`;
+## CLI-клиент
+
+```sh
+./scripts/run-client.sh get-user 1
+./scripts/run-client.sh create-withdrawal --amount 50 --destination 0xABC --key my-key
+./scripts/run-client.sh confirm-withdrawal 1
+./scripts/run-client.sh list-users --limit 10
+./scripts/run-client.sh list-withdrawals
+./scripts/run-client.sh list-ledger
+```
+
+Полный список команд: `./scripts/run-client.sh --help`;
 
 ## Сборка и скрипты
 
-- `make cmd/server` - собрать и запустить сервер;
-- `make cmd/client` - собрать и запустить клиент;
-- `make test` - запустить тесты (требуется Docker);
-- `make lint` - проверка кода;
+- `./scripts/run-server.sh` - запустить сервер локально;
+- `./scripts/run-client.sh <command>` - запустить CLI-клиент;
+- `./scripts/gen-secrets.sh` - сгенерировать пароли (если отсутствуют);
 - `./scripts/docker-build.sh [tag]` - собрать Docker-образ;
 - `./scripts/docker-push.sh [tag]` - отправить в GitLab registry;
-- `./scripts/gen-secrets.sh` - сгенерировать пароли (если отсутствуют);
+- `make test` - запустить тесты (требуется Docker);
+- `make lint` - проверка кода;
 
 ## Тесты
 
