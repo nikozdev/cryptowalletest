@@ -44,7 +44,7 @@ func getUser(client *http.Client, id int) (*model.User, error) {
 
 func setUser(client *http.Client, id int, name string) error {
 	url := fmt.Sprintf("%s/v1/users/%d", baseURL, id)
-	payload, _ := json.Marshal(map[string]string{"v_name": name})
+	payload, _ := json.Marshal(map[string]string{"name": name})
 	req, err := http.NewRequest("PUT", url, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)

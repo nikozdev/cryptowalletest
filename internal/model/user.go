@@ -3,8 +3,8 @@ package model
 import "time"
 
 type User struct {
-	ID        int64     `json:"v_id"`
-	Name      string    `json:"v_name"`
-	Balance   float64   `json:"v_balance"`
-	CreatedAt time.Time `json:"v_created_at"`
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	Balance   float64   `json:"balance"`
+	CreatedAt time.Time `json:"created_at"`
 }
