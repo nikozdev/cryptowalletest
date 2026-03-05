@@ -8,3 +8,4 @@ set +a
 docker compose up postgresql -d
 
 make cmd/server
+./build/cmd/server.exe

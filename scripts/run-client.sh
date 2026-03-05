@@ -4,4 +4,5 @@ set -a
 . secrets/server.env
 set +a
 
-make cmd/client "$@"
+make cmd/client
+./build/cmd/client.exe "$@"
