@@ -6,10 +6,23 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 
 	"repo.nikozdev.net/cryptowalletest/internal/database"
 	"repo.nikozdev.net/cryptowalletest/internal/model"
 )
+
+func getPagination(r *http.Request) (int, int) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return limit, offset
+}
 
 var db *sql.DB
 var authToken string
@@ -283,6 +296,71 @@ func confirmWithdrawalHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(withdrawal)
 }
 
+func listUsersHandler(w http.ResponseWriter, r *http.Request) {
+	limit, offset := getPagination(r)
+	rows, err := db.Query(
+		`SELECT v_id, v_name, v_balance, v_created_at FROM t_user ORDER BY v_id LIMIT $1 OFFSET $2`,
+		limit, offset,
+	)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	users := []model.User{}
+	for rows.Next() {
+		var u model.User
+		rows.Scan(&u.ID, &u.Name, &u.Balance, &u.CreatedAt)
+		users = append(users, u)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(users)
+}
+
+func listWithdrawalsHandler(w http.ResponseWriter, r *http.Request) {
+	limit, offset := getPagination(r)
+	rows, err := db.Query(
+		`SELECT v_id, v_user_id, v_amount, v_currency, v_destination, v_status, v_idempotency_key, v_created_at
+		FROM t_withdrawal ORDER BY v_id LIMIT $1 OFFSET $2`,
+		limit, offset,
+	)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	withdrawals := []model.Withdrawal{}
+	for rows.Next() {
+		var wd model.Withdrawal
+		rows.Scan(&wd.ID, &wd.UserID, &wd.Amount, &wd.Currency, &wd.Destination, &wd.Status, &wd.IdempotencyKey, &wd.CreatedAt)
+		withdrawals = append(withdrawals, wd)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(withdrawals)
+}
+
+func listLedgerHandler(w http.ResponseWriter, r *http.Request) {
+	limit, offset := getPagination(r)
+	rows, err := db.Query(
+		`SELECT v_id, v_user_id, v_withdrawal_id, v_type, v_amount, v_balance_after, v_created_at
+		FROM t_ledger_entry ORDER BY v_id LIMIT $1 OFFSET $2`,
+		limit, offset,
+	)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	entries := []model.LedgerEntry{}
+	for rows.Next() {
+		var e model.LedgerEntry
+		rows.Scan(&e.ID, &e.UserID, &e.WithdrawalID, &e.Type, &e.Amount, &e.BalanceAfter, &e.CreatedAt)
+		entries = append(entries, e)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(entries)
+}
+
 func main() {
 	log.Println("init")
 
@@ -310,11 +388,14 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/users", listUsersHandler)
 	mux.HandleFunc("GET /v1/users/{id}", getUserHandler)
 	mux.HandleFunc("PUT /v1/users/{id}", setUserHandler)
+	mux.HandleFunc("GET /v1/withdrawals", listWithdrawalsHandler)
 	mux.HandleFunc("POST /v1/withdrawals", createWithdrawalHandler)
 	mux.HandleFunc("GET /v1/withdrawals/{id}", getWithdrawalHandler)
 	mux.HandleFunc("POST /v1/withdrawals/{id}/confirm", confirmWithdrawalHandler)
+	mux.HandleFunc("GET /v1/ledger", listLedgerHandler)
 
 	port := os.Getenv("APP_PORT")
 	if port == "" {
